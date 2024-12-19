@@ -1,65 +1,81 @@
-import React, { useState, useEffect } from "react";
+import { useState } from "react";
 import { Box, TextField, Typography, Button, Paper, MenuItem, Select, InputLabel, FormControl } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import debounce from "lodash/debounce";
 
 function Home() {
   const [input, setInput] = useState("");
   const [translation, setTranslation] = useState("");
   const [feature, setFeature] = useState("engToArabic");
-  const [summarizationType, setSummarizationType] = useState(""); // For summarization type
+  const [summarizationType, setSummarizationType] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
+  // Handle feature selection from the dropdown
   const handleFeatureChange = (event) => {
     setFeature(event.target.value);
-    setTranslation("");
-    setSummarizationType(""); // Reset summarization type when changing features
+    setTranslation(""); // Clear translation output when changing feature
+    setSummarizationType(""); // Reset summarization type
   };
 
+  // Handle summarization type selection
   const handleSummarizationTypeChange = (event) => {
     setSummarizationType(event.target.value);
   };
 
-  const fetchTranslation = async (text) => {
+  // Fetch translation or summarization result
+  const fetchTranslation = async () => {
     try {
-      let endpoint = `/translate/en2ar`;
-      let data = { text };
+      setIsLoading(true);
 
-      if (feature === "summarization") {
-        endpoint = `/summarize`;
-        data = { text, type: summarizationType };
+      // Determine the API endpoint based on the selected feature
+      let endpoint = "";
+      let data = { text: input };
+
+      if (feature === "engToArabic") {
+        endpoint = "http://localhost/translate/en2ar";
+      } else if (feature === "arabicToEng") {
+        endpoint = "http://localhost/translate/ar2en";
+      } else if (feature === "summarization") {
+        endpoint = "http://localhost/summarize";
+        data.type = summarizationType; // Include summarization type
       }
 
+      if (!endpoint) {
+        throw new Error("No valid feature selected.");
+      }
+
+      if (!input) {
+        setTranslation("Please enter text to process.");
+        setIsLoading(false);
+        return;
+      }
+
+      // Fetch task ID from the API
       const response = await axios.post(endpoint, data);
-      setTranslation(response.data.result);
+      const taskId = response.data.task_id;
+
+      if (taskId) {
+        // Poll the status endpoint until task completion
+        const statusEndpoint = `${endpoint}/status/${taskId}`;
+        let statusResponse = await axios.get(statusEndpoint);
+
+        while (statusResponse.data.status !== "completed") {
+          await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait 1 second before retrying
+          statusResponse = await axios.get(statusEndpoint);
+        }
+
+        // Set the final result in the translation box
+        setTranslation(statusResponse.data.result);
+      } else {
+        throw new Error("No task_id returned from the server.");
+      }
     } catch (error) {
       console.error("Error processing text:", error);
+      setTranslation("An error occurred while processing the text.");
+    } finally {
+      setIsLoading(false);
     }
-  };
-
-  const debouncedFetchTranslation = debounce((text) => {
-    if (text && (feature !== "summarization" || summarizationType)) {
-      fetchTranslation(text);
-    } else {
-      setTranslation("");
-    }
-  }, 300);
-
-  const handleInputChange = (e) => {
-    const value = e.target.value;
-    setInput(value);
-    debouncedFetchTranslation(value);
-  };
-
-  useEffect(() => {
-    return () => {
-      debouncedFetchTranslation.cancel();
-    };
-  }, [debouncedFetchTranslation]);
-
-  const handleUploadRoute = () => {
-    navigate("/upload");
   };
 
   return (
@@ -122,7 +138,7 @@ function Home() {
         <TextField
           label="Type here"
           value={input}
-          onChange={handleInputChange}
+          onChange={(e) => setInput(e.target.value)}
           fullWidth
           multiline
           sx={{ marginBottom: "1.5rem" }}
@@ -141,7 +157,7 @@ function Home() {
             Output:
           </Typography>
           <Typography>
-            {translation || "Start typing to see the result..."}
+            {isLoading ? "Processing..." : translation || "Click 'Process Text' to see the result."}
           </Typography>
         </Box>
 
@@ -149,12 +165,26 @@ function Home() {
           sx={{
             display: "flex",
             justifyContent: { xs: "center", sm: "flex-end" },
+            gap: "1rem",
           }}
         >
           <Button
             variant="contained"
             color="primary"
-            onClick={handleUploadRoute}
+            onClick={fetchTranslation}
+            disabled={isLoading || (feature === "summarization" && !summarizationType)}
+            sx={{
+              padding: "0.75rem 1.5rem",
+              textTransform: "none",
+              fontSize: "1rem",
+              width: { xs: "100%", sm: "auto" },
+            }}
+          >
+            Process Text
+          </Button>
+          <Button
+            variant="outlined"
+            onClick={() => navigate("/upload")}
             sx={{
               padding: "0.75rem 1.5rem",
               textTransform: "none",
