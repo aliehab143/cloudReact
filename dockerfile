@@ -1,5 +1,5 @@
 # Stage 1: Build the React application
-FROM node:16 as build
+FROM node:23 AS build
 
 # Set the working directory
 WORKDIR /app
@@ -30,3 +30,4 @@ EXPOSE 80
 
 # Start Nginx
 CMD ["nginx", "-g", "daemon off;"]
+
