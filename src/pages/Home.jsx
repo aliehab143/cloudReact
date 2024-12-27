@@ -1,7 +1,18 @@
 import { useState } from "react";
-import { Box, TextField, Typography, Button, Paper, MenuItem, Select, InputLabel, FormControl } from "@mui/material";
-import { useNavigate } from "react-router-dom";
+import {
+  Box,
+  TextField,
+  Typography,
+  Button,
+  Paper,
+  MenuItem,
+  Select,
+  InputLabel,
+  FormControl,
+  CircularProgress,
+} from "@mui/material";
 import axios from "axios";
+import { useNavigate } from "react-router-dom";
 
 function Home() {
   const [input, setInput] = useState("");
@@ -11,19 +22,16 @@ function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
-  // Handle feature selection from the dropdown
   const handleFeatureChange = (event) => {
     setFeature(event.target.value);
-    setTranslation(""); // Clear translation output when changing feature
-    setSummarizationType(""); // Reset summarization type
+    setTranslation("");
+    setSummarizationType("");
   };
 
-  // Handle summarization type selection
   const handleSummarizationTypeChange = (event) => {
     setSummarizationType(event.target.value);
   };
 
-  // Fetch translation or summarization result
   const fetchTranslation = async () => {
     try {
       setIsLoading(true);
@@ -33,12 +41,12 @@ function Home() {
       let data = { text: input };
 
       if (feature === "engToArabic") {
-        endpoint = "http://localhost/translate/en2ar";
+        endpoint = "http://localhost:5001/translate/en2ar";
       } else if (feature === "arabicToEng") {
-        endpoint = "http://localhost/translate/ar2en";
+        endpoint = "http://localhost:5001/translate/ar2en";
       } else if (feature === "summarization") {
-        endpoint = "http://localhost/summarize";
-        data.type = summarizationType; // Include summarization type
+        endpoint = "http://localhost:5001/summarize";
+        data.style = summarizationType; // Include summarization type
       }
 
       if (!endpoint) {
@@ -50,32 +58,53 @@ function Home() {
         setIsLoading(false);
         return;
       }
-
+// Log request details
+console.log("Sending request to:", endpoint, "with data:", data);
       // Fetch task ID from the API
       const response = await axios.post(endpoint, data);
+      console.log("Response from backend:", response.data);
       const taskId = response.data.task_id;
 
-      if (taskId) {
-        // Poll the status endpoint until task completion
-        const statusEndpoint = `${endpoint}/status/${taskId}`;
-        let statusResponse = await axios.get(statusEndpoint);
-
-        while (statusResponse.data.status !== "completed") {
-          await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait 1 second before retrying
-          statusResponse = await axios.get(statusEndpoint);
-        }
-
-        // Set the final result in the translation box
-        setTranslation(statusResponse.data.result);
-      } else {
+      if (!taskId) {
         throw new Error("No task_id returned from the server.");
       }
+      console.log("Task ID received:", taskId);
+      // Poll the status endpoint for task completion
+      const statusEndpoint = `http://localhost:5001/status/${taskId}`;
+      console.log("Polling initiated for:", statusEndpoint);
+      const result = await pollTaskStatus(statusEndpoint);
+
+      // Update the translation with the result
+      setTranslation(result);
     } catch (error) {
       console.error("Error processing text:", error);
       setTranslation("An error occurred while processing the text.");
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Polling function for task status
+  const pollTaskStatus = async (statusEndpoint, maxAttempts = 20, interval = 1000) => {
+    let attempts = 0;
+
+    while (attempts < maxAttempts) {
+      try {
+        const response = await axios.get(statusEndpoint);
+
+        if (response.data && response.data.translated_text) {
+          return response.data.translated_text; // Task completed, return the result
+        }
+      } catch (error) {
+        console.warn(`Polling attempt ${attempts + 1} failed:`, error);
+      }
+
+      // Increment the attempts and wait before retrying
+      attempts += 1;
+      await new Promise((resolve) => setTimeout(resolve, interval));
+    }
+
+    throw new Error("Task polling timed out.");
   };
 
   return (
@@ -105,6 +134,7 @@ function Home() {
           Select a feature and type below to process your text.
         </Typography>
 
+        {/* Feature Selection */}
         <FormControl fullWidth sx={{ marginBottom: "1.5rem" }}>
           <InputLabel id="feature-select-label">Select Action</InputLabel>
           <Select
@@ -119,6 +149,7 @@ function Home() {
           </Select>
         </FormControl>
 
+        {/* Summarization Type Dropdown */}
         {feature === "summarization" && (
           <FormControl fullWidth sx={{ marginBottom: "1.5rem" }}>
             <InputLabel id="summarization-type-select-label">Summarization Type</InputLabel>
@@ -135,6 +166,7 @@ function Home() {
           </FormControl>
         )}
 
+        {/* Text Input */}
         <TextField
           label="Type here"
           value={input}
@@ -144,6 +176,7 @@ function Home() {
           sx={{ marginBottom: "1.5rem" }}
         />
 
+        {/* Output Section */}
         <Box
           sx={{
             padding: "1rem",
@@ -151,16 +184,37 @@ function Home() {
             border: "1px solid #ccc",
             borderRadius: "4px",
             marginBottom: "1.5rem",
+            textAlign: "center",
+            position: "relative",
           }}
         >
           <Typography variant="h6" gutterBottom>
             Output:
           </Typography>
-          <Typography>
-            {isLoading ? "Processing..." : translation || "Click 'Process Text' to see the result."}
-          </Typography>
+
+          {isLoading ? (
+            <Box
+              sx={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                height: "100px",
+              }}
+            >
+              <Typography variant="body1" color="textSecondary" gutterBottom>
+                Processing...
+              </Typography>
+              <CircularProgress size={24} />
+            </Box>
+          ) : (
+            <Typography>
+              {translation || "Click 'Process Text' to see the result."}
+            </Typography>
+          )}
         </Box>
 
+        {/* Process and Upload Buttons */}
         <Box
           sx={{
             display: "flex",
@@ -184,6 +238,7 @@ function Home() {
           </Button>
           <Button
             variant="outlined"
+            color="secondary"
             onClick={() => navigate("/upload")}
             sx={{
               padding: "0.75rem 1.5rem",
@@ -192,7 +247,7 @@ function Home() {
               width: { xs: "100%", sm: "auto" },
             }}
           >
-            Go to Upload Page
+            Upload
           </Button>
         </Box>
       </Paper>
